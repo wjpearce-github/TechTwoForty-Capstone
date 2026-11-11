@@ -1,0 +1,221 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+# The built-in token can only read the repo. A job asks for more only if it needs it.
+permissions:
+  contents: read
+
+env:
+  IMAGE: capstone-api
+  TAG: ${{ github.sha }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Every action is pinned to a full commit SHA. A version tag is a pointer
+      # anyone with access to that repo can move. A commit SHA cannot move.
+      # The comment says which release the SHA is.
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+        with:
+          version: v0.70.0
+
+      - name: Make a folder for the reports
+        run: mkdir -p reports
+
+      # Cheapest check first: is there a secret anywhere in the repo?
+      # Each scan saves a full report for DefectDojo, then runs the gate.
+      - name: Secret scan (blocks)
+        run: |
+          trivy fs --scanners secret --skip-dirs reports --format json --output reports/trivy-secrets.json .
+          trivy fs --scanners secret --skip-dirs reports --exit-code 1 .
+
+      # Every step from here runs even if an earlier one failed,
+      # so one red gate never hides another.
+      - name: Set up Python
+        if: ${{ !cancelled() }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: ${{ !cancelled() }}
+        run: pip install -r app/requirements.txt pytest==9.1.1
+
+      - name: Run tests
+        if: ${{ !cancelled() }}
+        run: pytest app/
+
+      - name: SAST with Semgrep (blocks)
+        if: ${{ !cancelled() }}
+        run: |
+          pipx install semgrep==1.179.0
+          semgrep scan --config auto --error --json-output=reports/semgrep.json app/
+
+      - name: Dependency scan and SBOM (blocks)
+        if: ${{ !cancelled() }}
+        run: |
+          trivy fs --scanners vuln --format json --output reports/trivy-sca.json app/
+          trivy fs --format cyclonedx --output reports/sbom.cdx.json app/
+          trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 app/
+
+      - name: Set up Terraform
+        if: ${{ !cancelled() }}
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.16.5"
+
+      - name: Terraform format and validate (blocks)
+        if: ${{ !cancelled() }}
+        run: |
+          terraform -chdir=infra fmt -check
+          terraform -chdir=infra init -backend=false -input=false
+          terraform -chdir=infra validate
+
+      - name: IaC scan (blocks)
+        if: ${{ !cancelled() }}
+        run: |
+          trivy config --format json --output reports/trivy-iac.json infra/
+          trivy config --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml --exit-code 1 infra/
+
+      - name: Build the Docker image
+        if: ${{ !cancelled() }}
+        run: docker build -t "$IMAGE:$TAG" app/
+
+      - name: Image scan (blocks)
+        if: ${{ !cancelled() }}
+        run: |
+          trivy image --format json --output reports/trivy-image.json "$IMAGE:$TAG"
+          trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE:$TAG"
+
+      # Start the image you just built, then attack it from outside.
+      # It runs here without its database and only reports. Stage 4 scans the live site.
+      - name: DAST with ZAP (reports only)
+        if: ${{ !cancelled() }}
+        run: |
+          docker run -d --name api -p 8000:8000 "$IMAGE:$TAG"
+          sleep 5
+          chmod 777 reports
+          docker run --rm --network host -v "$PWD/reports:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t http://localhost:8000 -I -x zap.xml
+
+      - name: Keep the reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-reports
+          path: reports/
+
+      # Only main gets deployed, so only main keeps the image, and only
+      # when every gate above passed.
+      - name: Save the scanned image
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+        run: docker save "$IMAGE:$TAG" | gzip > image.tar.gz
+
+      - name: Hand the image to the deploy job
+        if: ${{ success() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image
+          path: image.tar.gz
+          retention-days: 1
+
+  deploy:
+    needs: build
+    # Only main, and never for a pull request.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # Waits here for your approval. The AWS role only trusts this environment.
+    environment:
+      name: production
+      url: ${{ steps.smoke.outputs.url }}
+    # One deploy at a time. A second one waits its turn.
+    concurrency: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Download the scanned image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: image
+
+      - name: Load the image
+        run: docker load < image.tar.gz
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-west-2
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - name: Push the image to ECR
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          # Tags in this repository can never be overwritten, so a re-run
+          # of the same commit finds its image already there and skips the push.
+          if aws ecr describe-images --repository-name "$IMAGE" --image-ids imageTag="$TAG" > /dev/null 2>&1; then
+            echo "$IMAGE:$TAG is already in ECR"
+          else
+            docker tag "$IMAGE:$TAG" "$REGISTRY/$IMAGE:$TAG"
+            docker push "$REGISTRY/$IMAGE:$TAG"
+          fi
+
+      - name: Deploy with Systems Manager
+        run: |
+          INSTANCE_ID=$(aws ssm get-parameter --name /capstone/instance-id --query Parameter.Value --output text)
+          COMMAND_ID=$(aws ssm send-command \
+            --document-name capstone-deploy \
+            --instance-ids "$INSTANCE_ID" \
+            --parameters "imageTag=$TAG" \
+            --comment "Deploy $TAG" \
+            --query Command.CommandId --output text)
+          echo "Sent the deploy to $INSTANCE_ID"
+          STATUS=Pending
+          for attempt in $(seq 1 120); do
+            sleep 5
+            STATUS=$(aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)
+            echo "Check $attempt: $STATUS"
+            case "$STATUS" in
+              Pending|InProgress|Delayed) ;;
+              *) break ;;
+            esac
+          done
+          # The server's warnings first, then its normal output, so the
+          # last line of this step is the result: Deployed, or why not.
+          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+            --query "[StandardErrorContent, StandardOutputContent]" --output text || true
+          test "$STATUS" = "Success"
+
+      - name: Smoke test through CloudFront
+        id: smoke
+        run: |
+          URL=$(aws ssm get-parameter --name /capstone/app-url --query Parameter.Value --output text)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          for attempt in $(seq 1 20); do
+            if curl -fsS "$URL/health" | grep "$TAG"; then
+              # The right version is live. Now check a page that uses the database.
+              curl -fsS "$URL/api/notes" > /dev/null
+              echo "Live: $URL is serving $TAG"
+              exit 0
+            fi
+            echo "Not yet ($attempt of 20)"
+            sleep 6
+          done
+          echo "$URL is not serving $TAG"
+          exit 1

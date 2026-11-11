@@ -1,0 +1,62 @@
+schemaVersion: "2.2"
+description: Deploy one capstone-api image from ECR, trying it out before it goes live
+parameters:
+  imageTag:
+    type: String
+    description: The image tag to deploy, which is the full Git commit ID
+    allowedPattern: "^[0-9a-f]{40}$"
+mainSteps:
+  - action: aws:runShellScript
+    name: deploy
+    inputs:
+      timeoutSeconds: "600"
+      runCommand:
+        - set -euo pipefail
+        - TAG="{{ imageTag }}"
+        - IMAGE="${image_repo}"
+        - PREVIOUS="$(cat /etc/capstone/current-tag 2>/dev/null || true)"
+        - aws ecr get-login-password --region ${region} | docker login --username AWS --password-stdin ${registry}
+        - docker pull "$IMAGE:$TAG"
+        - |
+          # Waits up to a minute for the app on this port to answer /health.
+          healthy() {
+            for attempt in $(seq 1 20); do
+              if curl -fs "http://localhost:$1/health" > /dev/null; then
+                echo "Healthy on check $attempt"
+                return 0
+              fi
+              sleep 3
+            done
+            return 1
+          }
+
+          # 1. Try the new version on port 8001, next to the live one.
+          #    Only this server can reach port 8001. It must answer /health
+          #    and read real data, which proves it can reach the database.
+          docker rm -f capstone-api-trial 2> /dev/null || true
+          docker run -d --name capstone-api-trial -p 127.0.0.1:8001:8000 --env-file /etc/capstone/app.env -e APP_VERSION="$TAG" "$IMAGE:$TAG"
+          if ! healthy 8001 || ! curl -fsS http://localhost:8001/api/notes > /dev/null; then
+            echo "Version $TAG failed its trial. The live version was not touched."
+            docker logs --tail 20 capstone-api-trial || true
+            docker rm -f capstone-api-trial
+            exit 1
+          fi
+          docker rm -f capstone-api-trial
+
+          # 2. It works, so swap it in on port 8000, where the load balancer looks.
+          docker rm -f capstone-api 2> /dev/null || true
+          docker run -d --name capstone-api --restart unless-stopped -p 8000:8000 --env-file /etc/capstone/app.env -e APP_VERSION="$TAG" "$IMAGE:$TAG"
+          if healthy 8000; then
+            echo "$TAG" > /etc/capstone/current-tag
+            echo "Deployed $TAG"
+            exit 0
+          fi
+
+          # 3. If it fails after the swap, put the previous version back.
+          echo "Version $TAG failed after the swap"
+          docker rm -f capstone-api || true
+          if [ -n "$PREVIOUS" ]; then
+            docker run -d --name capstone-api --restart unless-stopped -p 8000:8000 --env-file /etc/capstone/app.env -e APP_VERSION="$PREVIOUS" "$IMAGE:$PREVIOUS"
+            echo "Rolled back to $PREVIOUS"
+          fi
+          exit 1

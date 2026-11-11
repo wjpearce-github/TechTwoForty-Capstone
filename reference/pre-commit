@@ -1,0 +1,9 @@
+#!/bin/sh
+# Runs before every commit on this machine. Stops the commit if Trivy finds
+# a secret anywhere in the repo. Anyone can skip it with git commit --no-verify,
+# which is why the pipeline runs the same check.
+if ! report=$(trivy fs --scanners secret --exit-code 1 --quiet --skip-dirs .venv,reports . 2>&1); then
+  echo "$report"
+  echo "Commit stopped by the pre-commit hook: Trivy found a secret (or could not run)."
+  exit 1
+fi

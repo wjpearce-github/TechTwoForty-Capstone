@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Capstone notes</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <h1>Capstone notes</h1>
+    <p class="sub">Served from a private container. Stored in a private database.</p>
+    {# nosemgrep -- No CSRF token on purpose: this app has no logins and no cookies, so a forged request can do nothing an attacker could not do directly. #}
+    <form method="post" action="{{ url_for('create_note') }}">
+      <input name="body" maxlength="500" placeholder="Write a note" required>
+      <button type="submit">Save</button>
+    </form>
+    <ul>
+      {% for note in notes %}
+      <li>{{ note }}</li>
+      {% else %}
+      <li class="empty">No notes yet. Write the first one.</li>
+      {% endfor %}
+    </ul>
+  </main>
+</body>
+</html>

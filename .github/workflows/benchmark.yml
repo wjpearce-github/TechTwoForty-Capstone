@@ -1,0 +1,38 @@
+name: Benchmark
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  prowler:
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to a full commit SHA, not a version tag. Unit 3 explains why.
+      - name: Sign in to AWS as security-audit (OIDC)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_AUDIT_ROLE_ARN }}
+          aws-region: eu-west-2
+
+      - name: CIS AWS Foundations with Prowler (reports only)
+        run: |
+          mkdir -p reports && chmod 777 reports
+          docker run --rm \
+            -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
+            -v "$PWD/reports:/home/prowler/output" \
+            prowlercloud/prowler:5.45.0 aws \
+            --compliance cis_7.0_aws --region eu-west-2 \
+            -M json-ocsf html -o /home/prowler/output -z
+
+      - name: Keep the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: benchmark-reports
+          path: reports/

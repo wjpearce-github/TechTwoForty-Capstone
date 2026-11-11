@@ -1,0 +1,38 @@
+# Risk register: scanner findings we have accepted, and why.
+# Each decision is tied to the one file it is about. A new kind of
+# finding, or the same finding in another file, still fails the pipeline.
+misconfigurations:
+  - id: AWS-0053
+    paths:
+      - "edge.tf"
+    statement: >-
+      The load balancer is internet-facing so that CloudFront can reach it.
+      Its security group only lets in CloudFront's own address list, so
+      nobody can reach it directly from the internet.
+
+  - id: AWS-0054
+    paths:
+      - "edge.tf"
+    statement: >-
+      The load balancer listens on plain HTTP. Visitors always get HTTPS
+      from CloudFront. Only the hop from CloudFront to the load balancer is
+      HTTP, because an HTTPS listener needs a certificate for a domain you
+      own. With a domain: add an ACM certificate and make the origin
+      https-only.
+
+  - id: AWS-0011
+    paths:
+      - "edge.tf"
+    statement: >-
+      No AWS WAF in front of CloudFront. WAF is billed every month even
+      when idle, so it is left out of a learning build. It is the first
+      thing to add for a real service.
+
+  - id: AWS-0104
+    paths:
+      - "security.tf"
+    statement: >-
+      The app server can send HTTPS to any address, through the NAT
+      gateway, to reach ECR, Systems Manager, Secrets Manager and package
+      updates. Narrowing it further needs a VPC endpoint per AWS service,
+      which together cost more than the NAT gateway.

@@ -1,0 +1,10 @@
+metadata:
+  id: "CKV2_T240_1"
+  name: "Every EC2 instance must carry a Project tag"
+  category: "GENERAL_SECURITY"
+definition:
+  cond_type: "attribute"
+  resource_types:
+    - "aws_instance"
+  attribute: "tags.Project"
+  operator: "exists"
