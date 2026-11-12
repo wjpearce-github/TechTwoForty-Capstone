@@ -120,11 +120,11 @@ Coming back after a destroy: `terraform -chdir=infra apply`, then GitHub, Action
 | Module | What it gives the capstone |
 |---|---|
 | [Linux](https://github.com/wjpearce-github/TechTwoForty-Linux) | The shell on your VM and the server: `ss`, `curl`, `getent`, `systemctl`, a settings file only root can read |
-| [Scripting](https://github.com/wjpearce-github/TechTwoForty-Scripting) | The Python app and tests, the shell loops in the deploy, and your auditor in Stage 4 |
+| [Scripting](https://github.com/wjpearce-github/TechTwoForty-Scripting) | The Python app and its tests, and your auditor in Stage 4 |
 | [Cloud](https://github.com/wjpearce-github/TechTwoForty-Cloud) | VPC, IAM roles, Secrets Manager, CloudTrail |
 | [Terraform](https://github.com/wjpearce-github/TechTwoForty-Terraform) | All of `infra/`: remote state, references, `depends_on`, outputs, destroy and rebuild |
-| [Git](https://github.com/wjpearce-github/TechTwoForty-Git) | The repo, branch protection, pull requests, and a revert when a change goes wrong |
 | [Docker](https://github.com/wjpearce-github/TechTwoForty-Docker) | The multi-stage, non-root image and the Compose stack |
+| [Git](https://github.com/wjpearce-github/TechTwoForty-Git) | The repo, branch protection, pull requests, and a revert when a change goes wrong |
 | [CI/CD](https://github.com/wjpearce-github/TechTwoForty-CICD) | The pipeline, OIDC, artifacts, and the production environment with its approval |
 | [Security](https://github.com/wjpearce-github/TechTwoForty-Security) | Semgrep, Trivy and ZAP, and the habit of fixing or accepting in writing |
 | [AI](https://github.com/wjpearce-github/TechTwoForty-AI) | A real fix written with Claude Code, reviewed by you, verified by the pipeline |

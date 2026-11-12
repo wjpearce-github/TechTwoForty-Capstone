@@ -52,13 +52,14 @@ Accepted, with reasons in `.trivyignore.yaml`:
 
 Next improvements, found by the scanners at MEDIUM and LOW and deliberately deferred:
 
-- VPC flow logs (AWS-0178) and CloudFront access logs (AWS-0010)
+- VPC flow logs (AWS-0178)
 - RDS deletion protection (AWS-0177), off so that `terraform destroy` works, and longer backups (AWS-0077)
 - RDS IAM authentication (AWS-0176) and Performance Insights (AWS-0133)
 - A customer-managed KMS key for ECR (AWS-0033)
+- CloudFront access logs, so every visit is on record
 - Verify the database certificate (`sslmode=verify-full`) instead of only requiring TLS
 - A custom domain with an ACM certificate, then HTTPS all the way to the load balancer
-- A second app server in the other Availability Zone, and Multi-AZ RDS
+- A second app server in the other Availability Zone, and Multi-AZ RDS (a standby copy of the database in the other zone)
 - Make sure only this site's own CloudFront distribution can reach the load balancer: a secret header that CloudFront adds and the load balancer checks, or CloudFront VPC origins with a private load balancer
 - Pin every dependency, including the ones the libraries pull in, with a lock file
 - Tighter server permissions: replace the two AWS-managed policies with my own (the Systems Manager one can read any Parameter Store value, the ECR one can pull from any repository), and give the app its own database user instead of the master user

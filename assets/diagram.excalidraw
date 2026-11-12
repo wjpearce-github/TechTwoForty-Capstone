@@ -1215,6 +1215,56 @@
       "endArrowhead": "arrow"
     },
     {
+      "id": "adm",
+      "type": "arrow",
+      "x": 200,
+      "y": 500,
+      "width": 500,
+      "height": 180,
+      "angle": 0,
+      "strokeColor": "#8b5cf6",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 731904221,
+      "version": 1,
+      "versionNonce": 1844001377,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1794343892192,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          155
+        ],
+        [
+          500,
+          155
+        ],
+        [
+          500,
+          180
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startBinding": null,
+      "endBinding": null,
+      "startArrowhead": null,
+      "endArrowhead": "arrow"
+    },
+    {
       "id": "g2t",
       "type": "text",
       "x": 250,
