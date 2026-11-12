@@ -10,7 +10,29 @@ permissions:
   id-token: write
 
 jobs:
+  # A repo with no audit role yet (like the template repo) runs this job instead
+  # of the benchmark, and it says what to set up. Once AWS_AUDIT_ROLE_ARN is set, it skips.
+  benchmark-not-set-up:
+    name: "Benchmark skipped: set up AWS first"
+    if: vars.AWS_AUDIT_ROLE_ARN == ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say what to set up
+        run: |
+          echo "::notice title=Benchmark skipped: set up AWS first::Set the AWS_AUDIT_ROLE_ARN variable to run the CIS benchmark. The run summary lists the steps."
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Benchmark skipped: this repo has no audit role yet
+
+          The weekly Prowler CIS benchmark signs in to AWS as a read-only `security-audit` role:
+
+          1. Create the `security-audit` role with the trust policy from the Security section (Security section, Unit 1).
+          2. **Settings → Secrets and variables → Actions → Variables:** add `AWS_AUDIT_ROLE_ARN`, set to that role's ARN.
+
+          Then run it from **Actions → Benchmark → Run workflow**, or wait for Monday's run.
+          EOF
+
   prowler:
+    if: vars.AWS_AUDIT_ROLE_ARN != ''
     runs-on: ubuntu-latest
     steps:
       # Pinned to a full commit SHA, not a version tag. Unit 3 explains why.
