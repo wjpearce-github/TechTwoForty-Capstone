@@ -26,11 +26,49 @@
 
 ## The big picture
 
+![Capstone: the big picture. Four phases across the top (start from your own code, rebuild it secure by default, automate it so it cannot slip, prove it, change it, tear it down). Three lanes below: your VM, where you work with Claude Code and check everything locally; GitHub, where a protected pull request runs the eight-gate build job and the approved deploy job; and AWS, where the live environment, ECR, Systems Manager and CloudTrail run](assets/big-picture-diagram.png)
+
+<sub>Download as a PDF: <a href="assets/big-picture-diagram.pdf">big-picture-diagram.pdf</a></sub>
+
+**This is how a change gets from your VM to production, and which module taught each part.** Every arrow is enforced by something, not remembered by someone.
+
+- **The four phases across the top** map to the six stages: start from your own code (Stages 1 and 2), rebuild it secure by default (Stage 2), automate it so it cannot slip (Stage 3), then prove it, change it and tear it down (Stages 4 to 6).
+- **Your VM** is where the work starts. You work on a branch with Claude Code and read every line of the diff, then run the same checks the pipeline will run (`pytest`, `semgrep`, `trivy`) before you push. Terraform runs from here too, and it builds everything in the AWS lane.
+- **GitHub** is where nothing gets past. A pull request into the protected main branch runs the build job's eight gates. If any gate fails, the pull request cannot merge. Once it merges, the deploy job waits for your approval, signs in to AWS with OIDC (no stored keys), pushes the scanned image to ECR and has Systems Manager run the deploy on the server.
+- **AWS** is the live environment. The deploy document tries the new image on port 8001, swaps it onto 8000 or rolls back, and a smoke test through CloudFront checks the commit ID. CloudTrail records every deploy and every Session Manager login.
+- **The small tags on each box** (Git, Docker, Terraform, and so on) name the module that taught that part. The table in [Where every module shows up](#where-every-module-shows-up) says the same thing in words.
+
+## The architecture
+
+![Capstone architecture in eu-west-2: a visitor reaches CloudFront over HTTPS, CloudFront reaches the Application Load Balancer on port 80 in the public subnets, the load balancer reaches the app server on port 8000 in a private subnet, and the app reaches PostgreSQL on RDS on 5432 over TLS. A NAT gateway gives outbound HTTPS only. You and GitHub Actions reach the server through Systems Manager, with ECR, Secrets Manager, IAM and OIDC, CloudTrail and S3 alongside](assets/architecture-diagram.png)
+
+<sub>Download as a PDF: <a href="assets/architecture-diagram.pdf">architecture-diagram.pdf</a></sub>
+
+**Read it left to right, the way a request travels.** The numbered steps on the right of the diagram follow one request:
+
+1. A browser asks CloudFront for the page over HTTPS.
+2. CloudFront passes it to the load balancer on port 80, and only CloudFront can, through AWS's own prefix list.
+3. The load balancer sends it to the app server on port 8000, while `/health` passes.
+4. The app reads the database password from Secrets Manager with its IAM role: nobody typed it, and it is not in Git or in Terraform state.
+5. The app queries PostgreSQL on 5432 over TLS, and the page goes back the same way.
+
+**Everything else on the page is every other way in or out, and there are not many.**
+
+- **The network:** one VPC (`10.0.0.0/16`) across two availability zones, each with a public and a private subnet. The load balancer has a foot in both public subnets because it must. The app server and the database sit in the private ones, with no public IP. Zone B holds the spare subnet RDS requires, and room for a second app server later.
+- **Outbound only:** the NAT gateway lets the server send HTTPS out (to ECR, Systems Manager, Secrets Manager and OS updates) and nothing back in.
+- **The security group chain:** CloudFront's address list → `capstone-alb` on 80 → `capstone-app` on 8000 → `capstone-db` on 5432. Each rule names the next group, never an IP address. No rule anywhere opens port 22.
+- **Two identities, no keys:** `capstone-app` is the server's role (Systems Manager agent, ECR pull, one secret). `capstone-deploy` is the pipeline's role, and only your repo's `production` environment can assume it.
+- **Deploys and your shell** both ride the Systems Manager agent's own outbound connection, so there is no inbound port for either.
+- **What is deliberately missing:** no bastion, no SSH, no public IP on the server or database, no password in code, Git, an image or state, no AWS access key in GitHub, no image tag that can move, and no deploy without a person saying yes.
+
+<details>
+<summary>The simpler version of the architecture diagram (Excalidraw)</summary>
+
 ![TechTwoForty Capstone architecture: Visitor to CloudFront over HTTPS, to the load balancer, to a private app server, to a private PostgreSQL database; GitHub Actions deploys through OIDC, ECR and Systems Manager](assets/diagram.png)
 
 <sub>Drawn in Excalidraw. To edit it, open <code>assets/diagram.excalidraw</code> at <a href="https://excalidraw.com">excalidraw.com</a>.</sub>
 
-**Read it left to right, the way a request travels.** HTTPS to CloudFront. CloudFront to the load balancer on port 80, and only CloudFront, through AWS's own prefix list. The load balancer to the app on 8000, while `/health` passes. The app to PostgreSQL on 5432 over TLS. The app reads the database password from Secrets Manager with its IAM role: nobody typed it, and it is not in Git or in Terraform state.
+</details>
 
 ## What is in this repo
 
