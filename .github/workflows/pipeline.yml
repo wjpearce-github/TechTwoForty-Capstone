@@ -130,10 +130,33 @@ jobs:
           path: image.tar.gz
           retention-days: 1
 
+  # A repo with no AWS role yet (like the template repo) runs this job instead
+  # of deploy, and it says what to set up. Once AWS_DEPLOY_ROLE_ARN is set, it skips.
+  deploy-not-set-up:
+    name: "Deploy skipped: set up AWS first"
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.AWS_DEPLOY_ROLE_ARN == ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say what to set up
+        run: |
+          echo "::notice title=Deploy skipped: set up AWS first::Every gate passed. Set the AWS_DEPLOY_ROLE_ARN variable and create the production environment to deploy. The run summary lists the steps."
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Deploy skipped: this repo has no AWS role yet
+
+          Every gate in the build job passed. The deploy job runs once AWS is set up:
+
+          1. **Stage 2:** `terraform -chdir=infra apply` builds the `capstone-deploy` role.
+          2. **Settings → Secrets and variables → Actions → Variables:** add `AWS_DEPLOY_ROLE_ARN`, set to the output of `terraform -chdir=infra output -raw deploy_role_arn`.
+          3. **Stage 3, Settings → Environments:** create `production`, with yourself as a required reviewer.
+
+          Then re-run this workflow. The deploy waits for your approval, pushes the scanned image to ECR and deploys it with Systems Manager.
+          EOF
+
   deploy:
     needs: build
-    # Only main, and never for a pull request.
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # Only main, never for a pull request, and only once AWS is set up.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.AWS_DEPLOY_ROLE_ARN != ''
     runs-on: ubuntu-latest
     # Waits here for your approval. The AWS role only trusts this environment.
     environment:

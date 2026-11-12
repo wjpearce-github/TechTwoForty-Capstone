@@ -21,8 +21,10 @@
 | **Cost** | About **$0.12 an hour** while it is up. `terraform -chdir=infra destroy` when you stop |
 | **Deliverable** | A live HTTPS app that only your pipeline can change, a README that explains every security decision, the evidence that it holds up, then an account with nothing running |
 
-> [!WARNING]
-> **GitHub Actions is switched off on this template repo.** There is no AWS account or `production` environment behind it. In **your** repo every push runs the gates, and every deploy waits for you.
+> [!NOTE]
+> [![CI/CD Pipeline](https://github.com/wjpearce-github/TechTwoForty-Capstone/actions/workflows/pipeline.yml/badge.svg)](https://github.com/wjpearce-github/TechTwoForty-Capstone/actions/workflows/pipeline.yml)
+>
+> **The pipeline runs on this template repo.** Open the [Actions tab](https://github.com/wjpearce-github/TechTwoForty-Capstone/actions) to see every gate run against this code and read the logs. There is no AWS account behind it, so instead of deploying, each run ends with a job called **Deploy skipped: set up AWS first** that lists what to set. In **your** repo, once `AWS_DEPLOY_ROLE_ARN` and the `production` environment are set up, every push runs the gates and every deploy waits for you.
 
 ## The big picture
 
